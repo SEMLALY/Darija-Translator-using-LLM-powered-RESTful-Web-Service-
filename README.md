@@ -130,6 +130,8 @@ Invoke-RestMethod -Method Post `
 ## Deployment Diagram
 <img width="1658" height="812" alt="deployment diagram drawio" src="https://github.com/user-attachments/assets/08625282-2954-4d01-a73c-c1d017a5d671" />
 
+## Demo video
+https://alakhawayn365-my.sharepoint.com/:v:/g/personal/y_assemlali_aui_ma/IQDAmKZe5gfnS4H_ecTlcem-AbjfxSijU-BK1XbD1P8qWfQ?e=4TXmRV
 
 ## Chrome Extension: Load and Test
 
