@@ -124,6 +124,12 @@ Invoke-RestMethod -Method Post `
   -ContentType "application/json" `
   -Body '{"text":"Hello, how are you?"}'
 ```
+## Class Diagram
+<img width="504" height="777" alt="image" src="https://github.com/user-attachments/assets/a01de5f5-63d0-4e80-811d-0fe50fb343ac" />
+
+## Deployment Diagram
+<img width="1658" height="812" alt="deployment diagram drawio" src="https://github.com/user-attachments/assets/08625282-2954-4d01-a73c-c1d017a5d671" />
+
 
 ## Chrome Extension: Load and Test
 
