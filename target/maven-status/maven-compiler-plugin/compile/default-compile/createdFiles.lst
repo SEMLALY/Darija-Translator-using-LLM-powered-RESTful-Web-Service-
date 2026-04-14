@@ -1,0 +1,5 @@
+com\example\translator\auth\AuthenticationFilter.class
+com\example\translator\TranslatorResource$GeminiClientException.class
+com\example\translator\TranslatorResource$TranslationRequest.class
+com\example\translator\TranslatorResource.class
+com\example\translator\TranslatorApplication.class
