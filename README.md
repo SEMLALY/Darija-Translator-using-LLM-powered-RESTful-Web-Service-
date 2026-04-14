@@ -1,65 +1,145 @@
-# Darija Translator using Gemini Flash Lite
+# Darija Translator REST API
 
-Secure Jakarta REST service that translates English text into Moroccan Darija using Google Gemini Flash Lite (`gemini-flash-lite-latest`). The project exposes a single `/api/translate` endpoint, protects it with Basic Authentication, and relies on environment-driven configuration for secrets.
+University mini project: a Java Maven WAR service that translates English text into Moroccan Darija (Latin letters only) using Google Gemini.
 
-## Project structure
+## Overview
 
-- `pom.xml` – Maven configuration, dependencies, and Jetty run plugin for local testing.
-- `src/main/java/com/example/translator/TranslatorApplication.java` – Rest application activation at `/api`.
-- `src/main/java/com/example/translator/TranslatorResource.java` – `/translate` endpoint, Gemini integration, JSON parsing, and error handling.
-- `src/main/java/com/example/translator/auth/AuthenticationFilter.java` – Basic Authentication enforcement using environment variables.
+This project exposes one secured REST endpoint:
+
+- `POST /api/translate`
+
+The backend is built with Jakarta REST (JAX-RS), Jersey, and Jetty.  
+It calls Gemini `generateContent` using:
+
+- `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent`
+
+The project also includes a Chrome extension (Manifest V3 + `chrome.sidePanel`) that can translate selected text directly from a web page.
+
+## Features
+
+- English to Moroccan Darija translation via Gemini
+- Darija output requested in Latin letters only
+- Basic Authentication for API access
+- Clean input validation and upstream error handling
+- Plain text translation response (not JSON)
+- Chrome right-click flow: context menu `Translate` captures selection, opens side panel, sends text to backend, and shows translated result
+
+## Technologies Used
+
+- Java 17
+- Maven (WAR packaging)
+- Jakarta RESTful Web Services (`jakarta.ws.rs`)
+- Jersey (JAX-RS implementation)
+- Jetty Maven Plugin (local run)
+- Jackson (JSON parsing)
+- Google Gemini API (`generateContent`)
+- Chrome Extension APIs (Manifest V3, contextMenus, sidePanel)
+
+## Project Structure
+
+- `pom.xml` - Maven dependencies and build plugins
+- `src/main/java/com/example/translator/TranslatorApplication.java` - JAX-RS app config (`/api`)
+- `src/main/java/com/example/translator/TranslatorResource.java` - `POST /api/translate` + Gemini integration
+- `src/main/java/com/example/translator/auth/AuthenticationFilter.java` - Basic Authentication filter
+- `src/main/webapp/WEB-INF/web.xml` - Jersey servlet mapping
+- Chrome extension folder (Manifest V3) - context menu + side panel UI/logic
+
+## Architecture Flow
+
+1. User sends text (API client or Chrome extension)
+2. Request hits `POST /api/translate`
+3. `AuthenticationFilter` validates Basic Auth
+4. `TranslatorResource` validates input and calls Gemini `generateContent`
+5. Service extracts `candidates[0].content.parts[0].text`
+6. Backend returns plain text Darija translation
 
 ## Setup
 
-1. Install Java 17+ and Maven.
-2. Populate required environment variables before running or packaging:
-   - `GEMINI_API_KEY` – Google Gemini API key for `gemini-flash-lite-latest`.
-   - `TRANSLATOR_API_USER` – Basic Auth username.
-   - `TRANSLATOR_API_PASSWORD` – Basic Auth password.
+### Prerequisites
 
-   Example for PowerShell:
-   ```powershell
-   $env:GEMINI_API_KEY='your_key'
-   $env:TRANSLATOR_API_USER='translator'
-   $env:TRANSLATOR_API_PASSWORD='secret'
-   ```
+- Java 17 installed
+- Maven installed (`mvn -v` should work)
+- Gemini API key
 
-3. Build and run locally via Jetty:
-   ```bash
-   mvn clean package
-   mvn jetty:run
-   ```
-   Jetty hosts the application at `http://localhost:8080` with the resource exposed at `/api/translate`.
+### Environment Variables (Windows PowerShell)
 
-4. For production you can deploy `target/darija-translator.war` to any Jakarta EE / Jakarta REST-compatible application server.
-
-## Translation flow
-
-- The resource expects `{"text":"English sentence"}` (JSON) via POST.
-- It validates input, calls Gemini (`generateText`) with the strong prompt:
-  `"Translate the following English text to Moroccan Darija. Return only the translation with no explanation."`
-- The JSON response is parsed to extract the translated text; only the translation is returned as `text/plain`.
-- The endpoint responds with appropriate HTTP codes for invalid input, authentication failure, missing API key, or Gemini errors.
-
-## Testing the endpoint
-
-Curl example:
-```bash
-curl -u translator:secret \
-  -X POST http://localhost:8080/api/translate \
-  -H "Content-Type: application/json" \
-  -d '{"text":"How do I get to the kasbah?"}'
+```powershell
+$env:GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+$env:TRANSLATOR_API_USER="student"
+$env:TRANSLATOR_API_PASSWORD="student123"
 ```
 
-Expected response (plain text):
+Local demo credentials:
+
+- Username: `student`
+- Password: `student123`
+
+### Run Backend
+
+```powershell
+mvn clean jetty:run
 ```
-كيفاش نوصل للقصبة؟
+
+Base URL:
+
+- `http://localhost:8080`
+
+API endpoint:
+
+- `http://localhost:8080/api/translate`
+
+## API Usage
+
+### Request
+
+`POST /api/translate`  
+Content-Type: `application/json`  
+Authorization: Basic Auth
+
+```json
+{
+  "text": "Hello, how are you?"
+}
 ```
 
-Postman/Post scripts should mirror the Basic Auth header and JSON payload.
+### Response
 
-## Notes
+Content-Type: `text/plain`
 
-- Make sure `GEMINI_API_KEY` remains secret; it is only read from the environment at runtime.
-- Keep the Basic Auth credentials safe; the filter refuses requests when either user or password is missing.
-- The service uses Java’s modern `HttpClient`, Jackson for JSON handling, and Jakarta REST annotations for structure and validation.
+Example:
+
+```text
+labas 3lik?
+```
+
+## Test API with PowerShell
+
+```powershell
+$pair = "student:student123"
+$basic = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair))
+
+Invoke-RestMethod -Method Post `
+  -Uri "http://localhost:8080/api/translate" `
+  -Headers @{ Authorization = "Basic $basic" } `
+  -ContentType "application/json" `
+  -Body '{"text":"Hello, how are you?"}'
+```
+
+## Chrome Extension: Load and Test
+
+1. Start backend with `mvn clean jetty:run`
+2. Open Chrome: `chrome://extensions`
+3. Enable **Developer mode**
+4. Click **Load unpacked**
+5. Select the extension folder (the one containing `manifest.json`)
+6. Open any webpage and select English text
+7. Right-click selected text and choose **Translate**
+8. The side panel opens and displays the Darija translation
+
+## Common Errors
+
+- `503` (high demand): Gemini is temporarily unavailable. Retry after a short delay.
+- `429` (quota/rate limit): Too many requests or quota exhausted. Wait and try again.
+- Response format confusion: `/api/translate` returns **plain text**, not JSON.
+- `401`: Basic Auth credentials are missing/invalid.
+- `400`: `text` is missing or blank.

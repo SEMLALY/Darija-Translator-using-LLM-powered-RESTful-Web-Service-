@@ -18,6 +18,7 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.logging.Logger;
 
 @Path("/translate")
 @Consumes(MediaType.APPLICATION_JSON)
@@ -25,10 +26,13 @@ import java.time.Duration;
 public class TranslatorResource {
 
     private static final String GEMINI_ENDPOINT =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent";
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent";
     private static final String TRANSLATION_PROMPT =
-            "Translate the following English text to Moroccan Darija. Return only the translation with no explanation.\n\n";
+            "Translate the following English text to Moroccan Darija using Latin letters only. Return only the translation.\n\n";
+    private static final int MAX_429_RETRIES = 3;
+    private static final long[] RETRY_DELAYS_MS = {2000L, 4000L, 6000L};
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final Logger LOGGER = Logger.getLogger(TranslatorResource.class.getName());
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
@@ -76,28 +80,66 @@ public class TranslatorResource {
                 .POST(HttpRequest.BodyPublishers.ofString(createPayload(englishText), StandardCharsets.UTF_8))
                 .build();
 
-        HttpResponse<String> response;
-        try {
-            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        } catch (HttpTimeoutException e) {
-            throw new GeminiClientException(Response.Status.BAD_GATEWAY, "Gemini API request timed out.");
-        } catch (IOException e) {
-            throw new GeminiClientException(Response.Status.BAD_GATEWAY,
-                    "Unable to reach Gemini API: " + e.getMessage());
-        }
+        int retryAttempt = 0;
+        while (true) {
+            HttpResponse<String> response;
+            try {
+                response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            } catch (HttpTimeoutException e) {
+                throw new GeminiClientException(Response.Status.BAD_GATEWAY, "Gemini API request timed out.");
+            } catch (IOException e) {
+                throw new GeminiClientException(Response.Status.BAD_GATEWAY,
+                        "Unable to reach Gemini API: " + e.getMessage());
+            }
 
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new GeminiClientException(Response.Status.BAD_GATEWAY,
-                    "Gemini API returned HTTP " + response.statusCode() + ".");
-        }
+            String responseBody = response.body();
 
-        String translation = extractTranslation(response.body());
-        if (translation == null || translation.isBlank()) {
-            throw new GeminiClientException(Response.Status.BAD_GATEWAY,
-                    "Gemini returned a malformed or unexpected response.");
-        }
+            if (response.statusCode() == 429) {
+                LOGGER.warning("Gemini API HTTP 429 response body (attempt " + (retryAttempt + 1) + "): " + responseBody);
+                if (retryAttempt < MAX_429_RETRIES) {
+                    long delayMs = RETRY_DELAYS_MS[retryAttempt];
+                    retryAttempt++;
+                    try {
+                        Thread.sleep(delayMs);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
+                    continue;
+                }
+                throw new GeminiClientException(Response.Status.BAD_GATEWAY,
+                        "Gemini quota exceeded or too many requests. Please try again shortly.");
+            }
 
-        return translation.trim();
+            if (response.statusCode() == 503) {
+                LOGGER.warning("Gemini API HTTP 503 response body: " + responseBody);
+                throw new GeminiClientException(Response.Status.BAD_GATEWAY,
+                        "Gemini is temporarily unavailable due to high demand. Please try again later.");
+            }
+
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                LOGGER.warning("Gemini API HTTP " + response.statusCode() + " response body: " + responseBody);
+                throw new GeminiClientException(Response.Status.BAD_GATEWAY,
+                        "Gemini API returned HTTP " + response.statusCode() + ".");
+            }
+
+            String translation;
+            try {
+                translation = extractTranslation(responseBody);
+            } catch (IOException e) {
+                LOGGER.warning("Failed to parse Gemini response JSON. Response body: " + responseBody);
+                throw new GeminiClientException(Response.Status.BAD_GATEWAY,
+                        "Failed to parse Gemini response JSON.");
+            }
+
+            if (translation == null || translation.isBlank()) {
+                LOGGER.warning("Gemini returned malformed response body: " + responseBody);
+                throw new GeminiClientException(Response.Status.BAD_GATEWAY,
+                        "Gemini returned a malformed or unexpected response.");
+            }
+
+            return translation.trim();
+        }
     }
 
     private URI createGeminiUri(String apiKey) throws GeminiClientException {
@@ -118,20 +160,16 @@ public class TranslatorResource {
         return root.toString();
     }
 
-    private static String extractTranslation(String body) {
-        try {
-            JsonNode root = OBJECT_MAPPER.readTree(body);
-            JsonNode textNode = root.path("candidates")
-                    .path(0)
-                    .path("content")
-                    .path("parts")
-                    .path(0)
-                    .path("text");
-            if (textNode.isTextual()) {
-                return textNode.asText();
-            }
-        } catch (IOException ignored) {
-            // Caller will convert this to a clean 502 response.
+    private static String extractTranslation(String body) throws IOException {
+        JsonNode root = OBJECT_MAPPER.readTree(body);
+        JsonNode textNode = root.path("candidates")
+                .path(0)
+                .path("content")
+                .path("parts")
+                .path(0)
+                .path("text");
+        if (textNode.isTextual()) {
+            return textNode.asText();
         }
         return null;
     }
